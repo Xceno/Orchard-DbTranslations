@@ -3,8 +3,12 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Orchard;
 using Orchard.Caching;
+using Orchard.Environment.Configuration;
+using Orchard.Environment.Descriptor.Models;
 using Orchard.Environment.Extensions;
+using Orchard.FileSystems.WebSite;
 using Orchard.Localization.Services;
 
 namespace Q42.DbTranslations.Services {
@@ -13,17 +17,32 @@ namespace Q42.DbTranslations.Services {
         private readonly ICacheManager _cacheManager;
         private readonly ISignals _signals;
         private readonly ILocalizationService _localizationService;
+        private readonly DefaultLocalizedStringManager _rawLocalizedStringManager;
 
         public LiveLocalizedStringManager(
+             //IWorkContextAccessor workContextAccessor,
+             //   DefaultLocalizedStringManager localizedStringManager,
+
+             IWebSiteFolder webSiteFolder,
+            IExtensionManager extensionManager,
+            //ICacheManager cacheManager,
+            ILocalizationStreamParser locationStreamParser,
+            ShellSettings shellSettings,
+            //ISignals signals,
+            ShellDescriptor shellDescriptor,
+
             ICacheManager cacheManager,
             ISignals signals,
             ILocalizationService localizationService) {
+            // _rawLocalizedStringManager = localizedStringManager;
+            //_rawLocalizedStringManager = workContextAccessor.GetContext().Resolve<DefaultLocalizedStringManager>();
+            _rawLocalizedStringManager = new DefaultLocalizedStringManager(webSiteFolder, extensionManager, cacheManager, locationStreamParser, shellSettings, signals, shellDescriptor);
             _localizationService = localizationService;
             _cacheManager = cacheManager;
             _signals = signals;
         }
 
-        private readonly ConcurrentDictionary<string, CultureDictionary> _cultureValue = 
+        private readonly ConcurrentDictionary<string, CultureDictionary> _cultureValue =
             new ConcurrentDictionary<string, CultureDictionary>();
 
         // This will translate a string into a string in the target cultureName.
@@ -45,7 +64,10 @@ namespace Q42.DbTranslations.Services {
                 return culture.Translations[genericKey];
             }
 
-            return GetParentTranslation(scope, text, cultureName);
+            var translation = GetParentTranslation(scope, text, cultureName);
+
+            // fix if could not get translation from database, return raw text issue.
+            return translation ?? _rawLocalizedStringManager.GetLocalizedString(scope, text, cultureName);
         }
 
         private string GetParentTranslation(string scope, string text, string cultureName) {
@@ -62,12 +84,14 @@ namespace Q42.DbTranslations.Services {
                     if (culture.Translations.ContainsKey(genericKey)) {
                         return culture.Translations[genericKey];
                     }
-                    return text;
+                    //return text;
+                    return null;
                 }
             }
             catch (CultureNotFoundException) { }
 
-            return text;
+            //return text;
+            return null;
         }
 
         // Loads the culture dictionary in memory and caches it.
@@ -88,7 +112,7 @@ namespace Q42.DbTranslations.Services {
                 .GetTranslations(culture)
                 .GroupBy(x => string.Format("{0}|{1}", x.Context, x.Key), StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(
-                    k => k.Key.ToLowerInvariant(), 
+                    k => k.Key.ToLowerInvariant(),
                     t => t.First().Translation);
         }
 
